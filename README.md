@@ -2,8 +2,8 @@
 
 FastAPI backend + Streamlit frontend, with locations stored in **Supabase (PostgreSQL)**.
 Pick a location from the dropdown to see current weather and a multi-day forecast.
-Weather data comes from [Open-Meteo](https://open-meteo.com/); coordinates for new locations are looked up
-automatically with [OpenStreetMap Nominatim](https://nominatim.org/). Both are free and need no API key.
+Weather data comes from [WeatherAPI.com](https://www.weatherapi.com/) (free API key; 3-day forecast on the free plan).
+Coordinates for new locations are looked up automatically with [OpenStreetMap Nominatim](https://nominatim.org/) (no key).
 
 ## Structure
 
@@ -23,9 +23,9 @@ WeatherApp/
 │       │   ├── geocode.py          # GET /geocode (address -> lat/long)
 │       │   └── weather.py          # GET /weather/{location_id}?days=7
 │       └── services/
-│           ├── weather_service.py  # Open-Meteo client + mapping
+│           ├── weather_service.py  # WeatherAPI.com client + mapping + cache
 │           ├── geocoding_service.py # Nominatim client
-│           └── weather_codes.py    # WMO code -> description/icon
+│           └── weather_codes.py    # condition code -> emoji
 ├── frontend/
 │   ├── app.py                      # entry point + page navigation
 │   ├── api_client.py               # backend calls (+ caching)
@@ -98,6 +98,7 @@ curl -X POST localhost:8000/locations -H 'Content-Type: application/json' -d \
 2. Enter the secrets when prompted:
    - `DATABASE_URL`: Supabase **session pooler** URI without the password (Render is IPv4-only; the direct `db.<ref>.supabase.co` host won't connect)
    - `DB_PASSWORD`: database password
+   - `WEATHERAPI_KEY`: WeatherAPI.com key
    - `BACKEND_URL`: `https://weatherapp-api.onrender.com` (check the API service's actual URL and update if different)
 3. Check `https://<api-url>/health` returns `{"status":"ok"}`, then open the UI service URL.
 

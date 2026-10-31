@@ -1,4 +1,4 @@
-from datetime import date
+import os
 
 import pandas as pd
 import requests
@@ -28,7 +28,8 @@ if not locations:
     st.stop()
 
 selected = st.selectbox("Location", locations, format_func=label)
-days = st.slider("Forecast days", min_value=3, max_value=14, value=7)
+# WeatherAPI free plan returns up to 3 days; raise FORECAST_DAYS on a paid plan.
+days = int(os.getenv("FORECAST_DAYS", "3"))
 
 try:
     data = fetch_weather(selected["id"], days)
@@ -50,10 +51,11 @@ c4.metric("Wind", f"{cur['wind_speed_kmh']:.0f} km/h")
 st.caption(f"Updated {cur['time'].replace('T', ' ')} (local time)")
 
 # --- Forecast ---
-st.subheader(f"{days}-day forecast")
+st.subheader(f"{len(data['forecast'])}-day forecast")
 df = pd.DataFrame(data["forecast"])
 df["date"] = pd.to_datetime(df["date"])
-df["Day"] = df["date"].apply(lambda d: "Today" if d.date() == date.today() else d.strftime("%a %d %b"))
+# First forecast day is "today" in the location's own timezone (not the server's).
+df["Day"] = [("Today" if i == 0 else d.strftime("%a %d %b")) for i, d in enumerate(df["date"])]
 
 cols = st.columns(min(len(df), 7))
 for i, row in df.head(7).iterrows():
