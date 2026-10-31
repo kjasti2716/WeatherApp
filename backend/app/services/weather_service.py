@@ -1,58 +1,84 @@
-"""Fetches weather from Open-Meteo and maps it to our schemas."""
+"""Fetches weather from WeatherAPI.com and maps it to our schemas.
+
+Responses are cached in memory per location for a few minutes to stay well
+within the provider's free-tier limits.
+"""
+
+import time
 
 import httpx
 
 from app.config import settings
 from app.models import Location
 from app.schemas import CurrentWeather, DailyForecast, LocationRead, WeatherResponse
-from app.services.weather_codes import describe
+from app.services.weather_codes import icon_for
 
-CURRENT_FIELDS = "temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m"
-DAILY_FIELDS = "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"
+
+class WeatherProviderError(Exception):
+    """Provider call failed. The message is safe to show to clients (never contains the API key)."""
+
+
+_cache: dict[tuple[float, float, int], tuple[float, dict]] = {}
+
+
+async def _fetch(latitude: float, longitude: float, days: int) -> dict:
+    cache_key = (round(latitude, 4), round(longitude, 4), days)
+    cached = _cache.get(cache_key)
+    if cached and time.monotonic() - cached[0] < settings.weather_cache_seconds:
+        return cached[1]
+
+    params = {
+        "key": settings.weatherapi_key,
+        "q": f"{latitude},{longitude}",
+        "days": days,
+        "aqi": "no",
+        "alerts": "no",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(settings.weatherapi_url, params=params)
+    except httpx.HTTPError as exc:
+        # Don't chain/echo the exception: its text can include the request URL (with the key).
+        raise WeatherProviderError(f"Could not reach weather provider ({type(exc).__name__})") from None
+
+    if resp.status_code != 200:
+        try:
+            message = resp.json()["error"]["message"]
+        except (ValueError, KeyError, TypeError):
+            message = resp.reason_phrase
+        raise WeatherProviderError(f"Weather provider returned {resp.status_code}: {message}")
+
+    data = resp.json()
+    _cache[cache_key] = (time.monotonic(), data)
+    return data
 
 
 async def get_weather(location: Location, days: int = settings.forecast_days) -> WeatherResponse:
-    params = {
-        "latitude": location.latitude,
-        "longitude": location.longitude,
-        "current": CURRENT_FIELDS,
-        "daily": DAILY_FIELDS,
-        "timezone": "auto",
-        "forecast_days": days,
-    }
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(settings.open_meteo_url, params=params)
-        resp.raise_for_status()
-        data = resp.json()
+    data = await _fetch(location.latitude, location.longitude, days)
 
     cur = data["current"]
-    desc, icon = describe(cur["weather_code"])
     current = CurrentWeather(
-        time=cur["time"],
-        temperature_c=cur["temperature_2m"],
-        feels_like_c=cur["apparent_temperature"],
-        humidity_pct=cur["relative_humidity_2m"],
-        wind_speed_kmh=cur["wind_speed_10m"],
-        weather_code=cur["weather_code"],
-        description=desc,
-        icon=icon,
+        time=cur["last_updated"],
+        temperature_c=cur["temp_c"],
+        feels_like_c=cur["feelslike_c"],
+        humidity_pct=cur["humidity"],
+        wind_speed_kmh=cur["wind_kph"],
+        weather_code=cur["condition"]["code"],
+        description=cur["condition"]["text"].strip(),
+        icon=icon_for(cur["condition"]["code"], bool(cur["is_day"])),
     )
 
-    daily = data["daily"]
-    forecast = []
-    for i, day in enumerate(daily["time"]):
-        code = daily["weather_code"][i]
-        d_desc, d_icon = describe(code)
-        forecast.append(
-            DailyForecast(
-                date=day,
-                temp_max_c=daily["temperature_2m_max"][i],
-                temp_min_c=daily["temperature_2m_min"][i],
-                precipitation_probability_pct=daily["precipitation_probability_max"][i],
-                weather_code=code,
-                description=d_desc,
-                icon=d_icon,
-            )
+    forecast = [
+        DailyForecast(
+            date=fd["date"],
+            temp_max_c=fd["day"]["maxtemp_c"],
+            temp_min_c=fd["day"]["mintemp_c"],
+            precipitation_probability_pct=fd["day"].get("daily_chance_of_rain"),
+            weather_code=fd["day"]["condition"]["code"],
+            description=fd["day"]["condition"]["text"].strip(),
+            icon=icon_for(fd["day"]["condition"]["code"]),
         )
+        for fd in data["forecast"]["forecastday"]
+    ]
 
     return WeatherResponse(location=LocationRead.model_validate(location), current=current, forecast=forecast)

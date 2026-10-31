@@ -16,8 +16,11 @@ class Settings(BaseSettings):
     # Kept separate so special characters (@, :, /, #) don't break URL parsing.
     db_password: str | None = None
 
-    open_meteo_url: str = "https://api.open-meteo.com/v1/forecast"
-    forecast_days: int = 7
+    # WeatherAPI.com (free key: https://www.weatherapi.com/signup.aspx). Free plan returns up to 3 forecast days.
+    weatherapi_key: str
+    weatherapi_url: str = "https://api.weatherapi.com/v1/forecast.json"
+    forecast_days: int = 3
+    weather_cache_seconds: int = 600
     nominatim_url: str = "https://nominatim.openstreetmap.org/search"
     # Nominatim policy requires an identifying User-Agent (https://operations.osmfoundation.org/policies/nominatim/)
     geocoder_user_agent: str = "WeatherApp/0.1 (learning project)"
