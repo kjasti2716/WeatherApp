@@ -1,0 +1,31 @@
+# Render Blueprint: Dashboard → New → Blueprint → pick this repo.
+# Creates two free web services. Secrets marked `sync: false` are entered in the dashboard, never committed.
+services:
+  - type: web
+    name: weatherapp-api
+    runtime: python
+    plan: free
+    region: singapore            # closest Render region to Supabase ap-south-1 (Mumbai)
+    buildCommand: pip install -r requirements.txt
+    startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
+      - key: DATABASE_URL        # Supabase *session pooler* URI, without the password
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+
+  - type: web
+    name: weatherapp-ui
+    runtime: python
+    plan: free
+    region: singapore
+    buildCommand: pip install -r requirements.txt
+    startCommand: cd frontend && streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
+      - key: BACKEND_URL         # public URL of weatherapp-api, e.g. https://weatherapp-api.onrender.com
+        sync: false

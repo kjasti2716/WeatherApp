@@ -89,3 +89,16 @@ Example:
 curl -X POST localhost:8000/locations -H 'Content-Type: application/json' -d \
   '{"country":"India","city":"Hyderabad","area_name":"Madhapur","zipcode":"500081"}'
 ```
+
+## Deploy (Render)
+
+`render.yaml` defines two free web services: `weatherapp-api` (FastAPI) and `weatherapp-ui` (Streamlit).
+
+1. Push to GitHub, then in Render: **New → Blueprint** → select this repo → **Apply**.
+2. Enter the secrets when prompted:
+   - `DATABASE_URL`: Supabase **session pooler** URI without the password (Render is IPv4-only; the direct `db.<ref>.supabase.co` host won't connect)
+   - `DB_PASSWORD`: database password
+   - `BACKEND_URL`: `https://weatherapp-api.onrender.com` (check the API service's actual URL and update if different)
+3. Check `https://<api-url>/health` returns `{"status":"ok"}`, then open the UI service URL.
+
+Free services sleep after 15 minutes idle; the first request afterwards takes ~30–60 s.
