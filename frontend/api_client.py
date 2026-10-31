@@ -1,6 +1,7 @@
 """HTTP client for the FastAPI backend (with Streamlit caching for reads)."""
 
 import os
+import time
 
 import requests
 import streamlit as st
@@ -28,6 +29,23 @@ def _check(resp: requests.Response) -> None:
             f"{field}: {d['msg']}" if (field := ".".join(map(str, d["loc"][1:]))) else d["msg"] for d in detail
         )
     raise ApiError(resp.status_code, str(detail))
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def wake_backend(max_wait: int = 120) -> bool:
+    """Poll /health until the backend answers. Render's free plan sleeps idle services
+    and a cold start can take ~1 minute, longer than the normal request timeouts.
+    Only success is cached (failure raises), so the next rerun retries."""
+    deadline = time.monotonic() + max_wait
+    while True:
+        try:
+            if requests.get(f"{BACKEND_URL}/health", timeout=30).ok:
+                return True
+        except requests.RequestException:
+            pass  # still booting (timeout / 502 / 503) - keep trying
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"Backend at {BACKEND_URL} did not respond within {max_wait}s")
+        time.sleep(3)
 
 
 @st.cache_data(ttl=60)
