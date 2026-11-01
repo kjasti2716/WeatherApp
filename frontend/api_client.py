@@ -31,19 +31,48 @@ def _check(resp: requests.Response) -> None:
     raise ApiError(resp.status_code, str(detail))
 
 
+def _health_ok(resp: requests.Response) -> bool:
+    """True only for the real API answer, not Render's HTML 'sleeping'/'suspended' pages."""
+    try:
+        return resp.status_code == 200 and resp.json().get("status") == "ok"
+    except ValueError:
+        return False
+
+
+def backend_is_up(timeout: float = 3) -> bool:
+    """One quick, uncached health check."""
+    try:
+        return _health_ok(requests.get(f"{BACKEND_URL}/health", timeout=timeout))
+    except requests.RequestException:
+        return False
+
+
 @st.cache_data(ttl=300, show_spinner=False)
-def wake_backend(max_wait: int = 120) -> bool:
+def wake_backend(max_wait: int = 180) -> bool:
     """Poll /health until the backend answers. Render's free plan sleeps idle services
     and a cold start can take ~1 minute, longer than the normal request timeouts.
-    Only success is cached (failure raises), so the next rerun retries."""
-    deadline = time.monotonic() + max_wait
+    Only success is cached (failure raises), so the next rerun retries.
+    Each attempt is logged so Render's frontend logs show what came back."""
+    start = time.monotonic()
+    attempt = 0
     while True:
+        attempt += 1
         try:
-            if requests.get(f"{BACKEND_URL}/health", timeout=30).ok:
+            # Long read timeout: Render may hold the request while the service boots.
+            resp = requests.get(f"{BACKEND_URL}/health", timeout=(5, 60))
+            print(
+                f"wake_backend attempt={attempt} t={time.monotonic() - start:.1f}s "
+                f"status={resp.status_code} x-render-routing={resp.headers.get('x-render-routing')}",
+                flush=True,
+            )
+            if _health_ok(resp):
                 return True
-        except requests.RequestException:
-            pass  # still booting (timeout / 502 / 503) - keep trying
-        if time.monotonic() >= deadline:
+        except requests.RequestException as exc:
+            print(
+                f"wake_backend attempt={attempt} t={time.monotonic() - start:.1f}s error={type(exc).__name__}",
+                flush=True,
+            )
+        if time.monotonic() - start >= max_wait:
             raise TimeoutError(f"Backend at {BACKEND_URL} did not respond within {max_wait}s")
         time.sleep(3)
 

@@ -29,5 +29,5 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.11
-      - key: BACKEND_URL         # public URL of weatherapp-api, e.g. https://weatherapp-api.onrender.com
+      - key: BACKEND_URL         # public URL of the API service as shown in Render (may have a suffix, e.g. https://weatherapp-lcbl.onrender.com)
         sync: false
